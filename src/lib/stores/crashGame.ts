@@ -1,7 +1,8 @@
 // src/lib/stores/crashGame.ts
-import { writable, derived } from 'svelte/store';
+import { writable, derived, get } from 'svelte/store';
 import { tweened } from 'svelte/motion';
 import { cubicOut } from 'svelte/easing';
+import { goto } from '$app/navigation';
 
 // Types
 export interface GamePoint {
@@ -19,6 +20,9 @@ export interface GameState {
   userWinnings: number;
   gameHistory: number[];
   pointsHistory: GamePoint[];
+  userCoins: number;
+  userId: string | null;
+  error: string | null;
 }
 
 // Constants
@@ -38,7 +42,10 @@ function createCrashGameStore() {
     userCashedOut: false,
     userWinnings: 0,
     gameHistory: [],
-    pointsHistory: []
+    pointsHistory: [],
+    userCoins: 0,
+    userId: null,
+    error: null
   };
   
   const { subscribe, set, update } = writable<GameState>(initialState);
@@ -60,29 +67,81 @@ function createCrashGameStore() {
     return Math.max(1, HOUSE_EDGE * (1 / (1 - e)));
   }
   
-  function startGame() {
+  async function initializeUser(pb: any, userId: string) {
+    try {
+      // Get user data from PocketBase
+      const user = await pb.collection('users').getOne(userId, {
+        fields: 'id,coins'
+      });
+      
+      update(state => ({
+        ...state,
+        userCoins: user.coins || 0,
+        userId: user.id,
+        error: null
+      }));
+      
+      return true;
+    } catch (error) {
+      console.error('Failed to initialize user:', error);
+      update(state => ({
+        ...state,
+        error: 'Failed to load user data'
+      }));
+      return false;
+    }
+  }
+  
+  async function startGame(pb: any) {
+    const state = get({ subscribe });
+    
+    // Check if user has enough coins
+    if (!state.userId) {
+      update(s => ({ ...s, error: 'You must be logged in to play' }));
+      return false;
+    }
+    
+    if (state.betAmount > state.userCoins) {
+      update(s => ({ ...s, error: 'Not enough coins for this bet' }));
+      return false;
+    }
+    
     // Cancel any existing game
     if (timer) clearInterval(timer);
     
-    const crashPoint = generateCrashPoint();
-    startTime = Date.now();
-    
-    // Reset the game state
-    update(state => ({
-      ...state,
-      isRunning: true,
-      isCrashed: false,
-      userCashedOut: false,
-      multiplier: 1,
-      crashPoint,
-      pointsHistory: [{ x: 0, y: canvasHeight }],
-      userWinnings: 0
-    }));
-    
-    currentMultiplier.set(1);
-    
-    // Start the game loop
-    timer = setInterval(() => updateGame(canvasHeight), UPDATE_INTERVAL);
+    try {
+      // Deduct bet amount from user's coins in PocketBase
+      await pb.collection('users').update(state.userId, {
+        coins: state.userCoins - state.betAmount
+      });
+      
+      const crashPoint = generateCrashPoint();
+      startTime = Date.now();
+      
+      // Reset the game state
+      update(s => ({
+        ...s,
+        isRunning: true,
+        isCrashed: false,
+        userCashedOut: false,
+        multiplier: 1,
+        crashPoint,
+        pointsHistory: [{ x: 0, y: canvasHeight }],
+        userWinnings: 0,
+        userCoins: s.userCoins - s.betAmount,
+        error: null
+      }));
+      
+      currentMultiplier.set(1);
+      
+      // Start the game loop
+      timer = setInterval(() => updateGame(canvasHeight), UPDATE_INTERVAL);
+      return true;
+    } catch (error) {
+      console.error('Failed to start game:', error);
+      update(s => ({ ...s, error: 'Failed to start game' }));
+      return false;
+    }
   }
   
   function updateGame(height: number) {
@@ -133,18 +192,35 @@ function createCrashGameStore() {
     });
   }
   
-  function cashOut() {
-    update(state => {
-      if (!state.isRunning || state.userCashedOut || state.isCrashed) {
-        return state;
-      }
+  async function cashOut(pb: any) {
+    const state = get({ subscribe });
+    
+    if (!state.isRunning || state.userCashedOut || state.isCrashed || !state.userId) {
+      return false;
+    }
+    
+    try {
+      const winnings = Math.floor(state.betAmount * state.multiplier);
       
-      return {
-        ...state,
+      // Update user's coins in PocketBase
+      await pb.collection('users').update(state.userId, {
+        coins: state.userCoins + winnings
+      });
+      
+      update(s => ({
+        ...s,
         userCashedOut: true,
-        userWinnings: state.betAmount * state.multiplier
-      };
-    });
+        userWinnings: winnings,
+        userCoins: s.userCoins + winnings,
+        error: null
+      }));
+      
+      return true;
+    } catch (error) {
+      console.error('Failed to cash out:', error);
+      update(s => ({ ...s, error: 'Failed to cash out' }));
+      return false;
+    }
   }
   
   function endGame() {
@@ -166,7 +242,6 @@ function createCrashGameStore() {
         ...state,
         isRunning: false,
         isCrashed: !state.userCashedOut,
-        userWinnings: state.userCashedOut ? state.userWinnings : 0,
         gameHistory: newGameHistory
       };
     });
@@ -175,7 +250,8 @@ function createCrashGameStore() {
   function setBetAmount(amount: number) {
     update(state => ({
       ...state,
-      betAmount: amount
+      betAmount: amount,
+      error: null
     }));
   }
   
@@ -202,12 +278,27 @@ function createCrashGameStore() {
     });
   }
   
+  function clearError() {
+    update(state => ({
+      ...state,
+      error: null
+    }));
+  }
+  
   function reset() {
     if (timer) {
       clearInterval(timer);
       timer = null;
     }
-    set(initialState);
+    
+    // Keep user ID and coins when resetting
+    const currentState = get({ subscribe });
+    set({
+      ...initialState,
+      userId: currentState.userId,
+      userCoins: currentState.userCoins
+    });
+    
     currentMultiplier.set(1);
   }
   
@@ -224,9 +315,11 @@ function createCrashGameStore() {
     currentMultiplier: { subscribe: currentMultiplier.subscribe },
     startGame,
     cashOut,
+    initializeUser,
     endGame,
     setBetAmount,
     adjustPointsHistory,
+    clearError,
     reset,
     destroy
   };

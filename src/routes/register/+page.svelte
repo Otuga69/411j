@@ -11,7 +11,7 @@
 <div class="flex justify-center items-center min-h-screen p-4">
     <div class="card w-full max-w-sm shadow-xl">
         <header class="card-header p-4 border-b border-surface-200-700-token">
-            <h2 class="h3 font-semibold">Login</h2>
+            <h2 class="h3 font-semibold">Create Account</h2>
         </header>
         
         {#if form?.fail}
@@ -22,7 +22,7 @@
         
         <div class="p-4">
             <form 
-                action="?/login" 
+                action="?/register" 
                 method="post" 
                 class="space-y-4"
                 use:enhance={() => {
@@ -45,6 +45,17 @@
                         autocomplete="email"
                     />
                 </label>
+
+                <label class="label">
+                    <span>Username</span>
+                    <input 
+                        class="input" 
+                        name="username" 
+                        type="text" 
+                        placeholder="username123" 
+                        required
+                    />
+                </label>
                 
                 <label class="label">
                     <span>Password</span>
@@ -54,37 +65,26 @@
                         type="password" 
                         placeholder="••••••" 
                         required 
-                        autocomplete="current-password"
+                        autocomplete="new-password"
                     />
                 </label>
                 
-                <div class="flex justify-end">
-                    <button 
-                        class="anchor text-sm"
-                        formnovalidate 
-                        formaction="?/reset"
-                        type="submit"
-                    >
-                        Forgot Password?
-                    </button>
-                </div>
-                
                 <div class="space-y-4">
                     <button 
-                        class="btn preset-filled-primary-500 w-[90%]" 
+                        class="btn preset-filled-primary-500 w-full" 
                         type="submit"
                         disabled={isSubmitting}
                     >
                         {#if isSubmitting}
                             <span class="spinner-border"></span>
                         {:else}
-                            Sign In
+                            Create Account
                         {/if}
                     </button>
                     
-                    <p class="text-center text-sm mt-4">
-                        Don't have an account? 
-                        <a href="/register" class="text-blue-500 hover:underline">Register here</a>
+                    <p class="text-center text-sm">
+                        Already have an account? 
+                        <a href="/login" class="text-blue-500 hover:underline">Sign in here</a>
                     </p>
                 </div>
             </form>

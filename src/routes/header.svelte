@@ -1,21 +1,29 @@
 <script lang="ts">
     import { goto } from '$app/navigation';
     import * as config from '$lib/config';
-    import { AppBar } from '@skeletonlabs/skeleton-svelte';
+    import { AppBar, Avatar } from '@skeletonlabs/skeleton-svelte';
     import FluentColorCoinMultiple24 from '~icons/fluent-color/coin-multiple-24';
     import LineMdCompassFilledLoop from '~icons/line-md/compass-filled-loop';
+    import { page } from '$app/stores';
     
     function goToLogin() {
         goto('/login');
     }
     
     function goToSignup() {
-        goto('/signup');
+        goto('/register');
     }
 
     function goToLoan() {
         goto('/loan');
     }
+
+    function goToProfile() {
+        goto('/profile');
+    }
+
+    // Get user data from page store
+    $: user = $page.data.user;
 </script>
 
 <div class="header-wrapper">
@@ -33,13 +41,23 @@
                     <button type="button" on:click={goToLoan}>
                         <FluentColorCoinMultiple24 class="w-5 h-5" />
                     </button>
-                    
                     <p class="ml-1">10000.00</p>
                 </div>
-                <div class="flex gap-2">
-                    <button type="button" on:click={goToLogin}>Login</button> 
-                    <button type="button" class="btn preset-filled-primary-500 login-btn" on:click={goToSignup}>Sign Up</button>
-                </div>
+
+                {#if user}
+                    <!-- Show avatar for logged in user -->
+                    
+                        <Avatar
+                            name="John Doe"
+                            background="preset-filled-primary-500"
+                            
+                        ></Avatar>
+                   
+                {:else}
+                    <!-- Show login/signup buttons for guests -->
+                    <div class="flex gap-2">
+                    </div>
+                {/if}
             </div>
         {/snippet}
     </AppBar>
@@ -66,5 +84,15 @@
         font-size: 1rem;
         padding: 0.375rem 1rem;
         font-weight: 500;
+    }
+
+    .btn-icon {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        background: none;
+        border: none;
+        cursor: pointer;
     }
 </style>

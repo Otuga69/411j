@@ -1,0 +1,18 @@
+@import 'tailwindcss';
+@plugin '@tailwindcss/forms';
+@plugin '@tailwindcss/typography';
+@import '@skeletonlabs/skeleton';
+@import '@skeletonlabs/skeleton/optional/presets';
+@import '@skeletonlabs/skeleton/themes/terminus';
+@use "pkg:@fontsource/open-sans/index.css";
+@source '../node_modules/@skeletonlabs/skeleton-svelte/dist';
+
+[data-theme='terminus'] {
+          --heading-font-family: 'Open Sans', sans-serif;
+          --base-font-family: 'Open Sans', sans-serif;
+          --anchor-font-family: 'inherit';
+          
+        }
+.h1 {
+          color: rgb(3, 233, 194);
+}

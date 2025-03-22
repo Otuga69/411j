@@ -38,6 +38,8 @@ const pocketbaseHandler: Handle = async ({ event, resolve }) => {
         // Refresh auth if logged in
         if (event.locals.pb.authStore.isValid) {
             await event.locals.pb.collection('users').authRefresh();
+            // Add the user to locals
+            event.locals.user = structuredClone(event.locals.pb.authStore.model);
         }
     } catch (_) {
         event.locals.pb.authStore.clear();

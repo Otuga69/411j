@@ -5,6 +5,7 @@ declare global {
     namespace App {
         interface Locals {
             pb: PocketBase;
+            user: Record<string, any> | null; // Add this line
         }
     }
 }

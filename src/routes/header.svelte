@@ -5,24 +5,9 @@
     import FluentColorCoinMultiple24 from '~icons/fluent-color/coin-multiple-24';
     import LineMdCompassFilledLoop from '~icons/line-md/compass-filled-loop';
     import { page } from '$app/stores';
+    import { browser } from '$app/environment';
     
-    function goToLogin() {
-        goto('/login');
-    }
-    
-    function goToSignup() {
-        goto('/register');
-    }
-
-    function goToLoan() {
-        goto('/loan');
-    }
-
-    function goToProfile() {
-        goto('/profile');
-    }
-
-    // Get user data from page store
+    // Get user data from page store with type safety
     $: user = $page.data.user;
 </script>
 
@@ -34,31 +19,48 @@
                 <strong>{config.title}</strong>
             </a>
         {/snippet}
-                
+        
         {#snippet trail()}
-            <div class="auth-buttons">
-                <div class="card preset-outlined-surface-200-800 flex items-center p-1">
-                    <button type="button" on:click={goToLoan}>
-                        <FluentColorCoinMultiple24 class="w-5 h-5" />
-                    </button>
-                    <p class="ml-1">10000.00</p>
-                </div>
-
-                {#if user}
-                    <!-- Show avatar for logged in user -->
-                    
-                        <Avatar
-                            name="John Doe"
-                            background="preset-filled-primary-500"
-                            
-                        ></Avatar>
-                   
-                {:else}
-                    <!-- Show login/signup buttons for guests -->
-                    <div class="flex gap-2">
+            {#if user}
+                <div class="auth-buttons">
+                    <div class="card preset-outlined-surface-200-800 flex items-center p-1">
+                        <button type="button">
+                            <FluentColorCoinMultiple24 class="w-5 h-5" />
+                        </button>
+                        <p class="ml-1">{user.coins || 0}</p>
                     </div>
-                {/if}
-            </div>
+                    
+                    <!-- Show avatar for logged in user -->
+                    <div class="flex gap-2 items-center">
+                        <button class="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold">
+                          <Avatar
+                          name={(() => {
+                            const name = user.username || user.email;
+                            if (name.includes(' ')) {
+                              // For names with spaces (e.g., "John Doe" -> "JD")
+                              return name
+                                .split(' ')
+                                .map((word: string) => word[0].toUpperCase())
+                                .join('');
+                            } else {
+                              // For single words (e.g., "johnes1234" -> "Jo")
+                              return name.slice(0, 2).toUpperCase();
+                            }
+                          })()}
+                            background="bg-primary-500"
+                            classes="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold"
+                          />
+                        </button>
+                      </div>
+                      
+                </div>
+            {:else}
+                <!-- Show login/signup buttons for guests -->
+                <div class="flex gap-2">
+                    <a href="/login" class="btn preset-filled-primary-500 w-[90%]">Login</a>
+                    <a href="/register" class="btn preset-filled-primary-500 w-[90%]">Signup</a>
+                </div>
+            {/if}
         {/snippet}
     </AppBar>
 </div>
@@ -85,14 +87,6 @@
         padding: 0.375rem 1rem;
         font-weight: 500;
     }
-
-    .btn-icon {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 0;
-        background: none;
-        border: none;
-        cursor: pointer;
-    }
+    
+    
 </style>

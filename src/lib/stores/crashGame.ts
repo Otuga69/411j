@@ -1,327 +1,299 @@
 // src/lib/stores/crashGame.ts
-import { writable, derived, get } from 'svelte/store';
-import { tweened } from 'svelte/motion';
-import { cubicOut } from 'svelte/easing';
-import { goto } from '$app/navigation';
+import { writable, readable, derived } from 'svelte/store';
+import type PocketBase from 'pocketbase';
 
-// Types
 export interface GamePoint {
   x: number;
   y: number;
 }
 
 export interface GameState {
+  userId: string | null;
+  userCoins: number;
+  betAmount: number;
   isRunning: boolean;
   isCrashed: boolean;
-  multiplier: number;
-  crashPoint: number;
-  betAmount: number;
   userCashedOut: boolean;
+  crashPoint: number;
   userWinnings: number;
   gameHistory: number[];
+  multiplier: number;
   pointsHistory: GamePoint[];
-  userCoins: number;
-  userId: string | null;
   error: string | null;
 }
 
-// Constants
-const GROWTH_RATE = 0.05;
-const HOUSE_EDGE = 0.95;
-const UPDATE_INTERVAL = 50; // ms
+// Initialize multiplier store
+const multiplier = writable(1.00);
 
-// Create the store
+// Initialize game state
+const initialState: GameState = {
+  userId: null,
+  userCoins: 0,
+  betAmount: 10,
+  isRunning: false,
+  isCrashed: false,
+  userCashedOut: false,
+  crashPoint: 0,
+  userWinnings: 0,
+  gameHistory: [],
+  multiplier: 1.00,
+  pointsHistory: [],
+  error: null
+};
+
 function createCrashGameStore() {
-  // Initial state
-  const initialState: GameState = {
-    isRunning: false,
-    isCrashed: false,
-    multiplier: 1,
-    crashPoint: 1,
-    betAmount: 10,
-    userCashedOut: false,
-    userWinnings: 0,
-    gameHistory: [],
-    pointsHistory: [],
-    userCoins: 0,
-    userId: null,
-    error: null
-  };
-  
   const { subscribe, set, update } = writable<GameState>(initialState);
-  
-  // Tweened multiplier for smooth animation
-  const currentMultiplier = tweened(1, {
-    duration: 100,
-    easing: cubicOut
-  });
-  
-  // Animation variables
-  let timer: ReturnType<typeof setInterval> | null = null;
-  let startTime = 0;
-  let canvasHeight = 400;
-  
-  function generateCrashPoint(): number {
-    // Generate random crash point with house edge
-    const e = Math.random();
-    return Math.max(1, HOUSE_EDGE * (1 / (1 - e)));
-  }
-  
-  async function initializeUser(pb: any, userId: string) {
-    try {
-      // Get user data from PocketBase
-      const user = await pb.collection('users').getOne(userId, {
-        fields: 'id,coins'
-      });
-      
-      update(state => ({
-        ...state,
-        userCoins: user.coins || 0,
-        userId: user.id,
-        error: null
-      }));
-      
-      return true;
-    } catch (error) {
-      console.error('Failed to initialize user:', error);
-      update(state => ({
-        ...state,
-        error: 'Failed to load user data'
-      }));
-      return false;
-    }
-  }
-  
-  async function startGame(pb: any) {
-    const state = get({ subscribe });
-    
-    // Check if user has enough coins
-    if (!state.userId) {
-      update(s => ({ ...s, error: 'You must be logged in to play' }));
-      return false;
-    }
-    
-    if (state.betAmount > state.userCoins) {
-      update(s => ({ ...s, error: 'Not enough coins for this bet' }));
-      return false;
-    }
-    
-    // Cancel any existing game
-    if (timer) clearInterval(timer);
-    
-    try {
-      // Deduct bet amount from user's coins in PocketBase
-      await pb.collection('users').update(state.userId, {
-        coins: state.userCoins - state.betAmount
-      });
-      
-      const crashPoint = generateCrashPoint();
-      startTime = Date.now();
-      
-      // Reset the game state
-      update(s => ({
-        ...s,
-        isRunning: true,
-        isCrashed: false,
-        userCashedOut: false,
-        multiplier: 1,
-        crashPoint,
-        pointsHistory: [{ x: 0, y: canvasHeight }],
-        userWinnings: 0,
-        userCoins: s.userCoins - s.betAmount,
-        error: null
-      }));
-      
-      currentMultiplier.set(1);
-      
-      // Start the game loop
-      timer = setInterval(() => updateGame(canvasHeight), UPDATE_INTERVAL);
-      return true;
-    } catch (error) {
-      console.error('Failed to start game:', error);
-      update(s => ({ ...s, error: 'Failed to start game' }));
-      return false;
-    }
-  }
-  
-  function updateGame(height: number) {
-    canvasHeight = height;
-    
-    update(state => {
-      // If already crashed or cashed out, just return current state
-      if (state.isCrashed || (!state.isRunning && state.pointsHistory.length > 1)) {
-        return state;
-      }
-      
-      const elapsed = (Date.now() - startTime) / 1000;
-      // Exponential growth formula
-      const newMultiplier = Math.pow(Math.E, GROWTH_RATE * elapsed);
-      
-      // Calculate new point for trail
-      const x = (state.pointsHistory.length) * 5;
-      // Inverted y-axis because canvas y increases downward
-      const y = height - (Math.log(newMultiplier) * 50);
-      
-      const newPointsHistory = [...state.pointsHistory, { x, y }];
-      
-      // Check for crash
-      if (newMultiplier >= state.crashPoint) {
-        // Execute crash logic immediately, but ensure we return a state
-        setTimeout(() => endGame(), 0);
-        
-        return {
-          ...state,
-          multiplier: newMultiplier,
-          pointsHistory: newPointsHistory,
-          isCrashed: true,
-          isRunning: false
-        };
-      }
-      
-      return {
-        ...state,
-        multiplier: newMultiplier,
-        pointsHistory: newPointsHistory
-      };
-    });
-    
-    // Update the tweened store
-    update(state => {
-      currentMultiplier.set(state.multiplier);
-      return state;
-    });
-  }
-  
-  async function cashOut(pb: any) {
-    const state = get({ subscribe });
-    
-    if (!state.isRunning || state.userCashedOut || state.isCrashed || !state.userId) {
-      return false;
-    }
-    
-    try {
-      const winnings = Math.floor(state.betAmount * state.multiplier);
-      
-      // Update user's coins in PocketBase
-      await pb.collection('users').update(state.userId, {
-        coins: state.userCoins + winnings
-      });
-      
-      update(s => ({
-        ...s,
-        userCashedOut: true,
-        userWinnings: winnings,
-        userCoins: s.userCoins + winnings,
-        error: null
-      }));
-      
-      return true;
-    } catch (error) {
-      console.error('Failed to cash out:', error);
-      update(s => ({ ...s, error: 'Failed to cash out' }));
-      return false;
-    }
-  }
-  
-  function endGame() {
-    if (timer) {
-      clearInterval(timer);
-      timer = null;
-    }
-    
-    update(state => {
-      // Add to game history only if we haven't already
-      const historyAlreadyUpdated = state.gameHistory.length > 0 && 
-                                    state.gameHistory[0] === state.crashPoint;
-      
-      const newGameHistory = historyAlreadyUpdated ? 
-        state.gameHistory : 
-        [state.crashPoint, ...state.gameHistory].slice(0, 10);
-      
-      return {
-        ...state,
-        isRunning: false,
-        isCrashed: !state.userCashedOut,
-        gameHistory: newGameHistory
-      };
-    });
-  }
-  
-  function setBetAmount(amount: number) {
-    update(state => ({
-      ...state,
-      betAmount: amount,
-      error: null
-    }));
-  }
-  
-  function adjustPointsHistory(canvasWidth: number) {
-    update(state => {
-      if (!state.pointsHistory.length) return state;
-      
-      const lastPoint = state.pointsHistory[state.pointsHistory.length - 1];
-      
-      if (lastPoint && lastPoint.x > canvasWidth) {
-        const diff = lastPoint.x - canvasWidth;
-        const adjustedHistory = state.pointsHistory.map(point => ({
-          x: point.x - diff,
-          y: point.y
-        }));
-        
-        return {
-          ...state,
-          pointsHistory: adjustedHistory
-        };
-      }
-      
-      return state;
-    });
-  }
-  
-  function clearError() {
-    update(state => ({
-      ...state,
-      error: null
-    }));
-  }
-  
-  function reset() {
-    if (timer) {
-      clearInterval(timer);
-      timer = null;
-    }
-    
-    // Keep user ID and coins when resetting
-    const currentState = get({ subscribe });
-    set({
-      ...initialState,
-      userId: currentState.userId,
-      userCoins: currentState.userCoins
-    });
-    
-    currentMultiplier.set(1);
-  }
-  
-  // Clean up on destroy
-  function destroy() {
-    if (timer) {
-      clearInterval(timer);
-      timer = null;
-    }
-  }
+  let gameInterval: number | null = null;
   
   return {
     subscribe,
-    currentMultiplier: { subscribe: currentMultiplier.subscribe },
-    startGame,
-    cashOut,
-    initializeUser,
-    endGame,
-    setBetAmount,
-    adjustPointsHistory,
-    clearError,
-    reset,
-    destroy
+    currentMultiplier: {
+      subscribe: multiplier.subscribe
+    },
+    
+    initializeUser: async (pb: PocketBase, userId: string) => {
+      try {
+        if (!pb || !userId) {
+          console.error('Missing required parameters for initialization');
+          return;
+        }
+        
+        const userData = await pb.collection('users').getOne(userId);
+        
+        update(state => ({
+          ...state,
+          userId: userId,
+          userCoins: userData.coins || 0
+        }));
+      } catch (error) {
+        console.error('Failed to initialize user:', error);
+        update(state => ({
+          ...state,
+          error: 'Failed to initialize user data'
+        }));
+      }
+    },
+    
+    setBetAmount: (amount: number) => {
+      update(state => ({
+        ...state,
+        betAmount: amount
+      }));
+    },
+    
+    startGame: async (pb: PocketBase) => {
+      if (!pb) {
+        update(state => ({ ...state, error: 'Authentication required' }));
+        return;
+      }
+      
+      update(state => {
+        if (state.isRunning) {
+          return state;
+        }
+        
+        if (state.betAmount <= 0 || state.betAmount > state.userCoins) {
+          return {
+            ...state,
+            error: 'Invalid bet amount'
+          };
+        }
+        
+        // Deduct the bet amount immediately
+        return {
+          ...state,
+          isRunning: true,
+          isCrashed: false,
+          userCashedOut: false,
+          userCoins: state.userCoins - state.betAmount,
+          pointsHistory: [{ x: 0, y: 400 }], // Add initial point for canvas
+          error: null
+        };
+      });
+      
+      // Reset multiplier
+      multiplier.set(1.00);
+      
+      try {
+        // Starting the game simulation
+        let currentMult = 1.00;
+        let crashed = false;
+        
+        // Generate a crash point using a random algorithm
+        // This is a simple implementation - you'd want something more sophisticated in production
+        const crashMultiplier = Math.random() < 0.33 ? 
+          1 + Math.random() : // 33% chance of crashing early (1.00-2.00x)
+          2 + Math.random() * 8; // 67% chance of going higher
+        
+        // Start game interval
+        gameInterval = window.setInterval(() => {
+          if (crashed) {
+            clearInterval(gameInterval!);
+            gameInterval = null;
+            return;
+          }
+          
+          // Increase multiplier at varying rates
+          if (currentMult < 1.5) {
+            currentMult += 0.01;
+          } else if (currentMult < 5) {
+            currentMult += 0.05;
+          } else {
+            currentMult += 0.1;
+          }
+          
+          // Round to 2 decimal places
+          currentMult = Math.round(currentMult * 100) / 100;
+          multiplier.set(currentMult);
+          
+          // Update the pointsHistory for the graph
+          update(state => {
+            const x = state.pointsHistory.length * 5;
+            const y = 400 - (Math.log(currentMult) * 50); // Adjust for canvas height
+            
+            return {
+              ...state,
+              multiplier: currentMult,
+              pointsHistory: [...state.pointsHistory, { x, y }]
+            };
+          });
+          
+          // Check if we've reached the crash point
+          if (currentMult >= crashMultiplier) {
+            crashed = true;
+            
+            // Update game state
+            update(state => {
+              // Add to history
+              const newHistory = [crashMultiplier, ...state.gameHistory];
+              if (newHistory.length > 10) {
+                newHistory.pop();
+              }
+              
+              return {
+                ...state,
+                isRunning: false,
+                isCrashed: true,
+                crashPoint: crashMultiplier,
+                gameHistory: newHistory
+              };
+            });
+            
+            // Stop the interval
+            clearInterval(gameInterval!);
+            gameInterval = null;
+          }
+        }, 100);
+      } catch (error) {
+        console.error('Error starting game:', error);
+        update(state => ({
+          ...state,
+          isRunning: false,
+          error: 'Failed to start game'
+        }));
+      }
+    },
+    
+    cashOut: async (pb: PocketBase) => {
+      try {
+        update(state => {
+          if (!state.isRunning || state.userCashedOut || state.isCrashed) {
+            return state;
+          }
+          
+          // Calculate winnings
+          const currentMult = state.multiplier;
+          const winnings = Math.floor(state.betAmount * currentMult);
+          
+          // Update user record asynchronously
+          const updateUserCoins = async () => {
+            try {
+              if (pb && state.userId) {
+                await pb.collection('users').update(state.userId, {
+                  coins: state.userCoins + winnings
+                });
+              }
+            } catch (err) {
+              console.error('Failed to update user coins:', err);
+            }
+          };
+          
+          // Fire and forget - we're already updating the UI state
+          updateUserCoins();
+          
+          return {
+            ...state,
+            userCashedOut: true,
+            userWinnings: winnings,
+            userCoins: state.userCoins + winnings
+          };
+        });
+      } catch (error) {
+        console.error('Error cashing out:', error);
+        update(state => ({
+          ...state,
+          error: 'Failed to cash out'
+        }));
+      }
+    },
+    
+    clearError: () => {
+      update(state => ({
+        ...state,
+        error: null
+      }));
+    },
+    
+    // Add these methods from the old store to maintain compatibility
+    adjustPointsHistory: (canvasWidth: number) => {
+      update(state => {
+        if (!state.pointsHistory.length) return state;
+        
+        const lastPoint = state.pointsHistory[state.pointsHistory.length - 1];
+        
+        if (lastPoint && lastPoint.x > canvasWidth) {
+          const diff = lastPoint.x - canvasWidth;
+          const adjustedHistory = state.pointsHistory.map(point => ({
+            x: point.x - diff,
+            y: point.y
+          }));
+          
+          return {
+            ...state,
+            pointsHistory: adjustedHistory
+          };
+        }
+        
+        return state;
+      });
+    },
+    
+    reset: () => {
+      if (gameInterval) {
+        clearInterval(gameInterval);
+        gameInterval = null;
+      }
+      
+      // Keep user ID and coins when resetting
+      update(state => ({
+        ...initialState,
+        userId: state.userId,
+        userCoins: state.userCoins
+      }));
+      
+      multiplier.set(1);
+    },
+    
+    destroy: () => {
+      if (gameInterval) {
+        clearInterval(gameInterval);
+        gameInterval = null;
+      }
+      
+      // Reset state
+      set(initialState);
+      multiplier.set(1.00);
+    }
   };
 }
 

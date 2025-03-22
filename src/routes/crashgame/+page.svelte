@@ -4,10 +4,14 @@
   import { crashGame, type GameState } from '$lib/stores/crashGame';
   import CrashGameCanvas from '$lib/components/CrashGameCanvas.svelte';
   import { page } from '$app/stores';
+  import { browser } from '$app/environment';
+  import PocketBase from 'pocketbase';
+  import { PUBLIC_POCKETBASE_URL } from '$env/static/public';
   
   // Reactive variables with explicit types
   let gameState: GameState;
   let currentMultiplier: number = 1;
+  let pb: PocketBase;
   
   // Subscribe to stores
   const unsubGame = crashGame.subscribe(state => {
@@ -29,8 +33,19 @@
   
   // Initialize user data on page load
   onMount(async () => {
-    if ($page.data.user) {
-      await crashGame.initializeUser($page.data.pb, $page.data.user.id);
+    if (browser) {
+      // Initialize PocketBase client on the client side
+      pb = new PocketBase(PUBLIC_POCKETBASE_URL);
+      
+      // Load auth from cookies if available
+      if (document.cookie) {
+        pb.authStore.loadFromCookie(document.cookie);
+      }
+      
+      // If we have user data from the page store
+      if ($page.data.user) {
+        await crashGame.initializeUser(pb, $page.data.user.id);
+      }
     }
   });
   
@@ -40,11 +55,11 @@
       return;
     }
     
-    await crashGame.startGame($page.data.pb);
+    await crashGame.startGame(pb);
   }
   
   async function handleCashOut() {
-    await crashGame.cashOut($page.data.pb);
+    await crashGame.cashOut(pb);
   }
   
   // Clean up subscriptions on destroy
@@ -61,8 +76,8 @@
   <!-- User Coins Display -->
   <div class="w-full flex justify-between items-center mb-4">
     <div class="text-xl font-bold">
-      {#if gameState?.userId}
-        Coins: {gameState.userCoins}
+      {#if $page.data.user}
+        Coins: {$page.data.user.coins || 0}
       {:else}
         <a href="/login" class="text-blue-400 hover:underline">Login to play</a>
       {/if}
@@ -122,7 +137,7 @@
           value={gameState?.betAmount}
           on:input={updateBetAmount}
           class="bg-gray-700 text-white p-2 rounded w-full mr-2"
-          disabled={gameState?.isRunning || !gameState?.userId}
+          disabled={gameState?.isRunning || !$page.data.user}
         />
         <span>coins</span>
       </div>
@@ -130,7 +145,7 @@
       <div class="flex gap-2">
         <button 
           on:click={handleStartGame} 
-          disabled={gameState?.isRunning || gameState?.betAmount > gameState?.userCoins || !gameState?.userId}
+          disabled={gameState?.isRunning || gameState?.betAmount > gameState?.userCoins || !$page.data.user}
           class="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-900 disabled:opacity-50 rounded font-semibold"
         >
           {gameState?.isRunning ? "In Progress..." : "Start Game"}

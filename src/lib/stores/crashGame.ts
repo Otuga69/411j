@@ -47,6 +47,9 @@ function createCrashGameStore() {
   
   return {
     subscribe,
+    update: (updater: (state: GameState) => GameState) => {
+      update(updater);
+    },
     currentMultiplier: {
       subscribe: multiplier.subscribe
     },
@@ -55,22 +58,33 @@ function createCrashGameStore() {
       try {
         if (!pb || !userId) {
           console.error('Missing required parameters for initialization');
-          return;
+          return false;
         }
         
         const userData = await pb.collection('users').getOne(userId);
         
-        update(state => ({
-          ...state,
-          userId: userId,
-          userCoins: userData.coins || 0
-        }));
+        update(state => {
+          // Set bet amount to reasonable default
+          const newBetAmount = Math.min(state.betAmount, userData.coins || 0);
+          return {
+            ...state,
+            userId: userId,
+            userCoins: userData.coins || 0,
+            betAmount: newBetAmount > 0 ? newBetAmount : 1
+          };
+        });
+        
+        // Force an immediate update of the multiplier to ensure UI is consistent
+        multiplier.set(1.00);
+        
+        return true; // Return success
       } catch (error) {
         console.error('Failed to initialize user:', error);
         update(state => ({
           ...state,
           error: 'Failed to initialize user data'
         }));
+        return false;
       }
     },
     

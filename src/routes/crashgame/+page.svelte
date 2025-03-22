@@ -21,7 +21,16 @@
   const unsubMultiplier = crashGame.currentMultiplier.subscribe(value => {
     currentMultiplier = value;
   });
-  
+
+  // Add reactive statement for coin synchronization
+  $: if ($page.data.user && gameState && $page.data.user.coins !== gameState.userCoins) {
+    // Synchronize coins when there's a mismatch
+    crashGame.update(state => ({
+      ...state,
+      userCoins: $page.data.user.coins || 0
+    }));
+  }
+
   // Handle input changes
   function updateBetAmount(e: Event) {
     const input = e.target as HTMLInputElement;
@@ -33,21 +42,30 @@
   
   // Initialize user data on page load
   onMount(async () => {
-    if (browser) {
-      // Initialize PocketBase client on the client side
-      pb = new PocketBase(PUBLIC_POCKETBASE_URL);
-      
-      // Load auth from cookies if available
-      if (document.cookie) {
-        pb.authStore.loadFromCookie(document.cookie);
-      }
-      
-      // If we have user data from the page store
-      if ($page.data.user) {
-        await crashGame.initializeUser(pb, $page.data.user.id);
-      }
+  if (browser) {
+    pb = new PocketBase(PUBLIC_POCKETBASE_URL);
+    
+    if (document.cookie) {
+      pb.authStore.loadFromCookie(document.cookie);
     }
-  });
+    
+    if ($page.data.user) {
+      // Force synchronous initialization of game state
+      crashGame.reset(); // Reset the game state first
+      
+      // Directly set user coins to match page data
+      gameState = {
+        ...gameState,
+        userId: $page.data.user.id,
+        userCoins: $page.data.user.coins || 0,
+        betAmount: Math.min(10, $page.data.user.coins || 0)
+      };
+      
+      // Then initialize properly
+      await crashGame.initializeUser(pb, $page.data.user.id);
+    }
+  }
+});
   
   async function handleStartGame() {
     if (!$page.data.user) {
@@ -143,9 +161,24 @@
       </div>
       
       <div class="flex gap-2">
+        <!-- Debug output -->
+        <pre class="text-xs text-gray-400 mb-2">
+          {JSON.stringify({
+            userCoins: gameState?.userCoins,
+            betAmount: gameState?.betAmount,
+            pageDataCoins: $page.data.user?.coins,
+            isRunning: gameState?.isRunning,
+            buttonDisabled: gameState?.isRunning || 
+                          (gameState?.betAmount > (gameState?.userCoins || 0)) || 
+                          !$page.data.user
+          }, null, 2)}
+        </pre>
+
         <button 
           on:click={handleStartGame} 
-          disabled={gameState?.isRunning || gameState?.betAmount > gameState?.userCoins || !$page.data.user}
+          disabled={gameState?.isRunning || 
+                   (gameState?.betAmount > (gameState?.userCoins || 0)) || 
+                   !$page.data.user}
           class="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-900 disabled:opacity-50 rounded font-semibold"
         >
           {gameState?.isRunning ? "In Progress..." : "Start Game"}
